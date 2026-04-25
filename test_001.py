@@ -1,5 +1,5 @@
 import numpy as np
-import torch
+import torch,os,logging,argparse
 import matplotlib.pyplot as plt
 # import gymnasium
 
@@ -443,4 +443,98 @@ def concatenate():
     print(np.concatenate(a)[:3])
     a = torch.Tensor(a)
     print(a.flatten())
-concatenate()
+
+def catstack():
+    w1 = torch.Tensor([0.5])  # shape=(1,)
+    w2 = torch.Tensor([0.8])  # shape=(1,)
+    return torch.stack([w1, w2], dim=0),torch.cat([w1, w2], dim=0)
+
+def loop():
+    print([_ for _ in range(10)])
+
+def make():
+    # ---------------
+    # 1. 构造 args 对象
+    # ---------------
+    class Args:
+        def __init__(self):
+            self.data_path = "./test_data"  # 数据文件夹
+
+    args = Args()
+
+    # ---------------
+    # 2. 自动创建测试文件（代码帮你建）
+    # ---------------
+    os.makedirs(args.data_path, exist_ok=True)
+
+    # 写 entities.dict
+    with open(os.path.join(args.data_path, "entities.dict"), "w") as f:
+        f.write("0\t小明\n")
+        f.write("1\t小红\n")
+        f.write("2\t学校\n")
+        f.write("3\t北京\n")
+
+    # 写 relations.dict
+    with open(os.path.join(args.data_path, "relations.dict"), "w") as f:
+        f.write("0\t喜欢\n")
+        f.write("1\t在...里\n")
+        f.write("2\t朋友\n")
+
+def split_and_strip():
+    # ----------------------
+    # 测试 1：strip() 作用
+    # 功能：去掉 两头 的空格、换行、制表符
+    # ----------------------
+    print("===== 测试 strip() =====")
+
+    s1 = "  我是带空格的字符串  "
+    s2 = "\n\t小明\t\n"  # 有换行、制表符
+
+    print("原字符串:", s1)
+    print("strip()后:", s1.strip())
+
+    print("原字符串:", s2)
+    print("strip()后:", s2.strip())
+
+    # ----------------------
+    # 测试 2：split() 作用
+    # 功能：按指定符号 切开字符串 → 变成列表
+    # ----------------------
+    print("\n===== 测试 split() =====")
+
+    line1 = "0\t小明"  # \t 是制表符
+    line2 = "101,102,103"  # 逗号分隔
+
+    # 默认按空格切
+    print("按空格切:".ljust(15), "a b c".split())
+
+    # 按制表符切（对应你的 entities.dict）
+    print("按制表符切:".ljust(15), line1.split("\t"))
+
+    # 按逗号切
+    print("按逗号切:".ljust(15), line2.split(","))
+
+def makedirs():
+    path = os.path.join("./a","b")
+    print(path)
+    os.makedirs('./a', exist_ok=True)
+    with open(path,"a") as f:
+        f.write("aaa\n")
+
+def show_loggings():
+    logging.basicConfig(level=logging.INFO)
+    logging.info("我是日志！！\n")
+
+def argparser():
+    # 1. 空盒子
+    parser = argparse.ArgumentParser()
+
+    # 2. 加参数规则
+    parser.add_argument("--data_path", type=str, default="data")
+
+    # 3. 解析 → 变成 args
+    args = parser.parse_args()
+
+    # 4. 直接用！
+    print(args.data_path)
+
