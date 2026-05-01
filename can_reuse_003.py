@@ -1,4 +1,9 @@
-import pickle
+# DEPENDENCY: 需要本地运行 Ollama，且已 pull qwen2:0.5b 和 mxbai-embed-large
+# 启动命令: ollama serve
+# 下载模型: ollama pull qwen2:0.5b && ollama pull mxbai-embed-large
+
+entities = ["Apple", "Orange", "strawberry", "Banana", "Computer", "Phone", "Airplane"]
+test_tree = {'Cluster_12': {'Cluster_6': 'Airplane', 'Cluster_11': {'Cluster_9': {'Cluster_2': 'strawberry', 'Cluster_3': 'Banana'}, 'Cluster_10': {'Cluster_7': {'Cluster_0': 'Apple', 'Cluster_1': 'Orange'}, 'Cluster_8': {'Cluster_4': 'Computer', 'Cluster_5': 'Phone'}}}}}
 
 from openai import OpenAI
 client = OpenAI(api_key="ollama_is_free", base_url="http://localhost:11434/v1")
@@ -125,8 +130,9 @@ def clustering2dict(entities,embeddings, distance_threshold=0.4):
 
     return clusters
 
-def build_tree(children, n_leaves, entity_labels):
-    hierarchy = {f"Leaf_{i}": entity_labels[i] for i in range(n_leaves)}
+def build_tree(children, entities):
+    n_leaves = len(entities)
+    hierarchy = {f"Leaf_{i}": entities[i] for i in range(n_leaves)}
     next_cluster_id = n_leaves
     for i, (left, right) in enumerate(children):
         cluster_id = f"Cluster_{next_cluster_id}"
@@ -281,15 +287,231 @@ def evaluate_threshold(entities, embeddings, threshold=0.36):
         score = sklearn.metrics.silhouette_score(embeddings, labels)
         return threshold, score, clusters
 
-import ast
-entities = ["Apple", "Orange", "strawberry", "Banana", "Computer", "Phone", "Airplane"]
-entities_description = []
-embeddings = []
-for entity in entities:
-    entities_description.append(generate_entity_description(entity))
-for i in range(len(entities)):
-    embeddings.append(mix_entity_and_description_embedding(entities[i], entities_description[i]))
-print(evaluate_threshold(entities, embeddings))
+# def test_evaluate_threshold():
+#     import ast
+#     entities = ["Apple", "Orange", "strawberry", "Banana", "Computer", "Phone", "Airplane"]
+#     entities_description = []
+#     embeddings = []
+#     for entity in entities:
+#         entities_description.append(generate_entity_description(entity))
+#     for i in range(len(entities)):
+#         embeddings.append(mix_entity_and_description_embedding(entities[i], entities_description[i]))
+#     print(evaluate_threshold(entities, embeddings))
+
+def find_optimal_threshold(
+    entities, embeddings, min_threshold=0.1, max_threshold=5, num_thresholds=100, num_threads=30
+):
+    import numpy as np,concurrent.futures
+    thresholds = np.linspace(min_threshold, max_threshold, num_thresholds)
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=num_threads
+    ) as executor:
+        futures = [
+            executor.submit(evaluate_threshold, entities, embeddings, threshold)
+            for threshold in thresholds
+        ]
+
+        best_score = -1.0
+        best_threshold = None
+        best_clusters = None
+
+        for future in concurrent.futures.as_completed(futures):
+            threshold, score, clusters = future.result()
+            if score > best_score:
+                best_score = score
+                best_threshold = threshold
+                best_clusters = clusters
+
+    if best_threshold is None:
+        best_threshold = thresholds[-1]
+        best_clusters = clustering2dict(
+            entities, embeddings, best_threshold
+        )
+
+    return best_threshold, best_clusters
+
+# def test_find_optimal_threshold():
+#     entities = ["Apple", "Orange", "strawberry", "Banana", "Computer", "Phone", "Airplane"]
+#     entities_description = []
+#     embeddings = []
+#     for entity in entities:
+#         entities_description.append(generate_entity_description(entity))
+#     for i in range(len(entities)):
+#         embeddings.append(mix_entity_and_description_embedding(entities[i], entities_description[i]))
+#     print(find_optimal_threshold(entities, embeddings))
+
+def create_entity_info(entities):
+    entity_info = {}
+    for ent in entities:
+        entity_info[ent] = {
+            "text_label": ent,
+            "original_description": None,
+            "llm_description": None,
+            "cluster": None,
+            "parent_path": None,
+            "nearest_clusters_lca": None
+        }
+    return entity_info
+
+# def create_entity_emb(entities):
+#     entity_embeddings = {}
+#     for ent in entities:
+#         entity_embeddings[ent] = None
+#     return entity_embeddings
+#
+# def test_create_entity_info_and_emb():
+#     entities = ["Apple", "Orange", "strawberry", "Banana", "Computer", "Phone", "Airplane"]
+#     format = {
+#                 "text_label": None,
+#                 "original_description": None,
+#                 "llm_description": None,
+#             }
+#     print(create_entity_emb(entities))
+
+def find_leaves(tree, leaf_keys=None, leaf_values=None):
+    if leaf_keys is None:
+        leaf_keys = []
+    if leaf_values is None:
+        leaf_values = []
+    for key, value in tree.items():
+        if isinstance(value, dict):
+            find_leaves(value, leaf_keys, leaf_values)
+        else:
+            leaf_keys.append(key)
+            leaf_values.append(value)
+    return leaf_keys, leaf_values
+
+def build_hierarchy(entities,embeddings):
+    cluster = clustering(embeddings)
+    return build_tree(cluster.children_, entities)
+
+# def test_find_leaves():
+#     entities = ["Apple", "Orange", "strawberry", "Banana", "Computer", "Phone", "Airplane"]
+#     entity_description = []
+#     entity_embeddings = []
+#     for entity in entities:
+#         entity_description.append(generate_entity_description(entity))
+#     for i in range(len(entities)):
+#         entity_embeddings.append(mix_entity_and_description_embedding(entities[i], entity_description[i]))
+#     tree = build_hierarchy(entities, entity_embeddings)
+#     print(tree)
+#     print('\n')
+#     print(find_leaves(tree))
+
+def map_child_to_parent(tree, parent_map=None, current_parent=None):
+    #把所有的{孩子:父母}变成字典中的键值对
+    if parent_map is None:
+        parent_map = {}
+    for key, value in tree.items():
+        if current_parent is not None:  # Map current key to its parent
+            parent_map[key] = current_parent
+        if isinstance(value, dict):  # Recursively process the dictionary
+            map_child_to_parent(value, parent_map, key)
+    return parent_map
+
+def node2parentpath(tree, source_cluster):
+    #找到source_cluster直到root的路径
+    #依赖map_child_to_parent
+    parent_path = []
+    child_parent = map_child_to_parent(tree)
+    current_parent = child_parent[source_cluster]
+    while current_parent in child_parent.keys():
+        parent_path.append(current_parent)
+        current_parent = child_parent[current_parent]
+    parent_path.append(current_parent)
+    return parent_path
 
 
+def find_nearest_keys_lca_based(tree, input_key, parent_map, m=5):
+    def _find_distance(parent_map, key, root):
+        distance = 0
+        while key != root:
+            key = parent_map[key]
+            distance += 1
+        return distance
+
+    def _find_lca(parent_map, key1, key2):
+        ancestors = set()
+        # Climb up from key1 to the root, collecting all ancestors
+        while key1 in parent_map:
+            ancestors.add(key1)
+            key1 = parent_map.get(key1, None)  # Safely get parent or None if not exists
+            if key1 is None:
+                break
+        # Climb up from key2 until we find the first common ancestor
+        while key2 not in ancestors:
+            key2 = parent_map.get(key2, None)  # Safely get parent or None if not exists
+            if key2 is None:
+                return None  # If reached the top without finding an ancestor, return None
+        return key2
+
+    def _distance_between_keys(parent_map, key1, key2):
+        # Find root two levels above current key
+        root1 = parent_map.get(key1)
+        if root1:
+            root1 = parent_map.get(root1)
+
+        root2 = parent_map.get(key2)
+        if root2:
+            root2 = parent_map.get(root2)
+
+        # Find LCA considering two levels up as the root
+        if root1 and root2:
+            lca = _find_lca(parent_map, key1, key2)
+            if lca:
+                distance1 = _find_distance(parent_map, key1, lca)
+                distance2 = _find_distance(parent_map, key2, lca)
+                return distance1 + distance2
+        return -1  # Return -1 if no valid LCA is found
+
+    all_keys = set(parent_map.keys())
+    distances = []
+
+    for key in all_keys:
+        if key != input_key:
+            dist = _distance_between_keys(parent_map, input_key, key)
+            if dist != -1:  # Only consider valid distances
+                distances.append((key, dist))
+
+    # Sort the list of distances based on distance, and return the first n keys
+    distances.sort(key=lambda x: x[1])
+
+    if len(distances) < m:
+        return [key for key, dist in distances]
+
+    return [key for key, dist in distances[:m]]
+
+# def labeling_hierarchy_to_entities(hierarchy, entity_info, num_threads=4):
+#     from collections import defaultdict
+#     from tqdm import tqdm
+#     leaf_keys, leaf_values = find_leaves(hierarchy)
+#
+#     label2entity = defaultdict(list)
+#     for entity in entity_info.keys():
+#         label2entity[entity_info[entity]["text_label"]].append(entity)
+#
+#     for i in tqdm(range(len(leaf_values))):
+#         entity_label_list = leaf_values[i]
+#         if not isinstance(entity_label_list, list):
+#             entity_label_list = [entity_label_list]
+#         for entity_label in entity_label_list:
+#             entities = label2entity.get(entity_label, [])
+#             parent_path = node2parentpath(hierarchy, leaf_keys[i])
+#             parent_map = map_child_to_parent(hierarchy)
+#             nearest_clusters_lca = find_nearest_keys_lca_based(
+#                 hierarchy, leaf_keys[i], parent_map, m=5
+#             )
+#
+#             for entity in entities:
+#                 entity_info[entity]["cluster"] = leaf_keys[i]
+#                 entity_info[entity]["parent_path"] = parent_path
+#                 entity_info[entity]["nearest_clusters_lca"] = nearest_clusters_lca
+#
+#     return entity_info
+#
+# def test_labeling_hierarchy_to_entities():
+#     entity_info = create_entity_info(entities)
+#     res = labeling_hierarchy_to_entities(test_tree,entity_info)
+#     print(res)
 
