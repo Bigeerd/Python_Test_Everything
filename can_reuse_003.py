@@ -8,15 +8,18 @@ test_tree = {'Cluster_12': {'Cluster_6': 'Airplane', 'Cluster_11': {'Cluster_9':
 from openai import OpenAI
 client = OpenAI(api_key="ollama_is_free", base_url="http://localhost:11434/v1")
 
-def gpt_AI_response(model, prompt, seed=44):
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=200,
-        temperature=0,
-        seed=seed,
-    )
-    return response
+def get_AI_response(model, prompt, seed=44):
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2048,
+            temperature=0,
+            seed=seed,
+        ).choices[0].message.content
+        return response
+    except Exception as e:
+        print(e)
 
 # def test_get_AI_response():
 #     from openai import OpenAI
@@ -38,7 +41,7 @@ def generate_entity_description(entity, hint=None):
         prompt = f"Please provide a brief description of the entity '{entity}' in the following format:\n\n{entity} is a [description].\n\nFor example:\napple is a round fruit with red, green, or yellow skin and crisp, juicy flesh.\n\nHINT:{hint}\n\nNow, describe {entity}:"
     else:
         prompt = f"Please provide a brief description of the entity '{entity}' in the following format:\n\n{entity} is a [description].\n\nFor example:\nBill Gates is a technology magnate, philanthropist, and co-founder of Microsoft Corporation, known for his significant contributions to the personal computing industry.\n\nNow, describe {entity}:"
-    response = gpt_AI_response(model="qwen2:0.5b", prompt=prompt)
+    response = get_AI_response(model="qwen2:0.5b", prompt=prompt)
     description = response.choices[0].message.content.strip()
     return description
 
